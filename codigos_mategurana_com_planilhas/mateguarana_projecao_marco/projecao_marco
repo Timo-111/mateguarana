@@ -1,0 +1,78 @@
+import pandas as pd
+
+jan_path = "C:/Users/202402369989/Desktop/mateguarana_projeto/mateguarana_projeto/mateguarana_planilhas/VENDA_POR_PRODUTO_JANEIRO_2025.csv"
+fev_path = "C:/Users/202402369989/Desktop/mateguarana_projeto/mateguarana_projeto/mateguarana_planilhas/vendas_de_fevereiro_por_produto.csv"
+ref_path = "C:/Users/202402369989/Desktop/mateguarana_projeto/mateguarana_projeto/codigos_mategurana_com_planilhas/mateguarana_code_3/vendas_produtos_integradas.csv"
+
+# ler csv
+jan_df = pd.read_csv(jan_path, sep=";", encoding="utf-8-sig")
+fev_df = pd.read_csv(fev_path, sep=";", encoding="utf-8-sig")
+ref_df = pd.read_csv(ref_path, sep=",", encoding="utf-8-sig")  
+
+# rename primeira coluna como produto
+jan_df = jan_df.rename(columns={jan_df.columns[0]: "Produto"})
+fev_df = fev_df.rename(columns={fev_df.columns[0]: "Produto"})
+ref_df = ref_df.rename(columns={ref_df.columns[0]: "Produto"})
+
+# padronizar nome de quantidade
+for df in [jan_df, fev_df]:
+    if "Quant.Vendas" in df.columns:
+        df.rename(columns={"Quant.Vendas": "Quantidade"}, inplace=True)
+
+# converter colunas monetárias para float
+def parse_monetario(valor):
+    try:
+        return float(str(valor).replace("R$", "").replace(".", "").replace(",", ".").strip())
+    except:
+        return 0.0
+
+monetarias = ["Valor Pago", "Total Vendas", "Custo Total", "ValorPago"]
+
+for col in monetarias:
+    if col in jan_df.columns:
+        jan_df[col] = jan_df[col].apply(parse_monetario)
+    if col in fev_df.columns:
+        fev_df[col] = fev_df[col].apply(parse_monetario)
+    if col in ref_df.columns:
+        ref_df[col] = ref_df[col].apply(parse_monetario)
+
+# problema com nomes
+if "ValorPago" in ref_df.columns:
+    ref_df = ref_df.rename(columns={"ValorPago": "Valor Pago"})
+
+# quantidades como numero
+for df in [jan_df, fev_df, ref_df]:
+    df["Quantidade"] = pd.to_numeric(df["Quantidade"], errors="coerce").fillna(0)
+
+# groupby por produto e somar colunas relevantes
+jan_group = jan_df.groupby("Produto")[["Quantidade", "Valor Pago", "Total Vendas", "Custo Total"]].sum()
+fev_group = fev_df.groupby("Produto")[["Quantidade", "Valor Pago", "Total Vendas", "Custo Total"]].sum()
+ref_group = ref_df.groupby("Produto")[["Quantidade", "Valor Pago", "Total Vendas", "Custo Total"]].sum()
+
+# media
+media_df = (jan_group + fev_group) / 2
+
+# projecao
+marco_proj = media_df * 1.5
+
+# limitar em 50%
+for col in marco_proj.columns:
+    if col in ref_group.columns:
+        limite = ref_group[col] * 0.5
+        marco_proj[col] = marco_proj[col].where(marco_proj[col] <= limite, limite)
+
+# resetar index e formatar resultado
+marco_proj = marco_proj.reset_index()
+marco_proj["Mês"] = "Março"
+marco_proj["Quantidade"] = marco_proj["Quantidade"].fillna(0).round(0).astype(int)
+
+# passar valores para reais novamente
+def formatar_rs(valor):
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+for col in ["Valor Pago", "Total Vendas", "Custo Total"]:
+    marco_proj[col] = marco_proj[col].apply(formatar_rs)
+
+# exportar tudo
+marco_proj.to_csv("projecao_marco.csv", index=False, encoding="utf-8-sig")
+print("✅ Arquivo 'projecao_marco_final.csv' gerado com sucesso!")
